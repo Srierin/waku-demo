@@ -66,6 +66,31 @@ class ChatSDK {
       console.warn('Running in offline mode');
     }
 
+    this.node = await createLightNode();
+
+    await this.node.start();
+
+    // 连接到公共Waku节点
+    const bootstrapNodes = [
+      '/dns4/node-01.do-ams3.wakuv2.test.statusim.net/tcp/443/wss/p2p/16Uiu2HAmPLe7Mzm8TsYUubgCAW1aJoeFScxrLj8ppHFivPo97bUZ',
+      '/dns4/node-02.do-ams3.wakuv2.test.statusim.net/tcp/443/wss/p2p/16Uiu2HAmPLe7Mzm8TsYUubgCAW1aJoeFScxrLj8ppHFivPo97bUZ',
+    ];
+
+    for (const node of bootstrapNodes) {
+      try {
+        await this.node.dial(node);
+        console.log(`Connected to bootstrap node: ${node}`);
+      } catch (error) {
+        console.error(`Failed to connect to bootstrap node: ${node}`, error);
+      }
+    }
+
+    await waitForRemotePeer(this.node, [
+      Protocols.LightPush,
+      Protocols.Filter,
+      this.options.storeMessages ? Protocols.Store : undefined,
+    ].filter(Boolean) as Protocols[]);
+
     return identity;
   }
 
@@ -92,6 +117,7 @@ class ChatSDK {
       return this.conversations.get(conversationId)!;
     }
 
+
     const conversation: Conversation = {
       id: conversationId,
       type,
@@ -115,8 +141,10 @@ class ChatSDK {
     }
     // 直接使用会话ID生成加密密钥，确保同一会话的所有用户使用相同密钥
     // 实际项目中应该使用更安全的密钥协商机制，如Diffie-Hellman密钥交换
+    
+    // 使用会话ID和用户私钥生成加密密钥
     const hash = keccak256(
-      toUtf8Bytes(conversationId)
+      toUtf8Bytes(`${conversationId}-${this.identity.privateKey}`)
     );
     return hash.slice(0, 32); // 使用前32字节作为密钥
   }

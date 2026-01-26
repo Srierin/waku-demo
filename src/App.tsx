@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import ChatSDK from './sdk/chat-sdk';
 import type { Message, Conversation } from './sdk/types';
+
 import { v4 as uuidv4 } from 'uuid';
+
 import './App.css';
 
 function App() {
@@ -13,7 +15,9 @@ function App() {
   const [messageInput, setMessageInput] = useState('');
   const [participantInput, setParticipantInput] = useState('');
   const [isInitializing, setIsInitializing] = useState(true);
+
   const [connectionStatus, setConnectionStatus] = useState<string>('Connecting...');
+
 
   useEffect(() => {
     initSDK();
@@ -26,6 +30,7 @@ function App() {
       const userIdentity = await chatSDK.init();
       setSdk(chatSDK);
       setIdentity(userIdentity.peerId);
+
       setConnectionStatus('Connected');
 
       console.log('SDK initialized successfully');
@@ -117,6 +122,7 @@ function App() {
 
     try {
       await sdk.revokeMessage(currentConversation.id, messageId);
+
       // 添加墓碑消息到本地状态，确保UI立即更新
       const tombstoneMessage: Message = {
         id: uuidv4(),
@@ -128,6 +134,7 @@ function App() {
         tombstoneFor: messageId
       };
       setMessages(prev => [...prev, tombstoneMessage]);
+
     } catch (error) {
       console.error('Failed to revoke message:', error);
     }
@@ -173,12 +180,14 @@ function App() {
     <div className="app">
       <header className="header">
         <h1>Mini Encrypted Chat</h1>
+
         <div className="header-info">
           <div className="identity">Your ID: {identity}</div>
           <div className={`connection-status ${connectionStatus === 'Connected' ? 'connected' : 'disconnected'}`}>
             {connectionStatus}
           </div>
         </div>
+
       </header>
 
       <div className="main">
@@ -203,17 +212,9 @@ function App() {
                 <li
                   key={convo.id}
                   className={currentConversation?.id === convo.id ? 'active' : ''}
-                  onClick={async () => {
-                    if (!sdk) return;
-
-                    // 切换会话
+                  onClick={() => {
                     setCurrentConversation(convo);
-
-                    // 加载已有消息
-                    const existingMessages = sdk.getMessages(convo.id);
-                    setMessages(existingMessages);
-
-                    console.log('Switched to conversation:', convo.id);
+                    setMessages(sdk?.getMessages(convo.id) || []);
                   }}
                 >
                   {convo.name || `Chat with ${convo.participants.filter(p => p !== identity).join(', ')}`}
