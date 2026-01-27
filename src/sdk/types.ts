@@ -19,6 +19,9 @@ export interface Message {
   timestamp: number;
   type: 'text' | 'tombstone';
   tombstoneFor?: string; // 被撤回的消息ID
+  signature?: string; // 消息签名，用于验证完整性
+  mac?: string; // 消息认证码，用于确保消息完整性和防篡改
+  isRevoked?: boolean; // 消息是否被撤回
 }
 
 export interface ChatOptions {

@@ -22,7 +22,7 @@ if %ERRORLEVEL% NEQ 0 (
 
 REM Start local Waku node
 echo Pulling Waku image...
-docker pull statusteam/nim-waku:v0.20.0 >nul 2>nul
+docker pull statusteam/nim-waku:latest
 
 echo Starting Waku node...
 docker run -d -p 60000:60000 -p 9000:9000 -p 8545:8545 --name nwaku statusteam/nim-waku:v0.20.0 ^

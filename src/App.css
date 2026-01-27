@@ -60,6 +60,33 @@ body {
   color: #e74c3c;
 }
 
+.connection-status.offline {
+  background-color: rgba(243, 156, 18, 0.2);
+  color: #f39c12;
+}
+
+.connection-status.test {
+  background-color: rgba(155, 89, 182, 0.2);
+  color: #9b59b6;
+}
+
+.test-mode-button {
+  margin-top: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  background-color: rgba(155, 89, 182, 0.2);
+  color: #9b59b6;
+  border: 1px solid #9b59b6;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.test-mode-button:hover {
+  background-color: rgba(155, 89, 182, 0.3);
+  color: #8e44ad;
+}
+
 .header h1 {
   font-size: 1.5rem;
 }
@@ -139,6 +166,37 @@ body {
 .conversation-list li.active {
   background-color: #e3f2fd;
   border-left: 4px solid #3498db;
+}
+
+.conversation-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.conversation-name {
+  font-weight: 500;
+  color: #333;
+}
+
+.conversation-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.quick-send-button {
+  padding: 0.25rem 0.75rem;
+  background-color: #3498db;
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-size: 0.7rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.quick-send-button:hover {
+  background-color: #2980b9;
 }
 
 .chat-area {
@@ -252,11 +310,11 @@ body {
 }
 
 .message.outgoing .message-actions button {
-  color: rgba(255, 255, 255, 0.7);
+  color: #333;
 }
 
 .message.outgoing .message-actions button:hover {
-  color: white;
+  color: #000;
 }
 
 /* New styles */

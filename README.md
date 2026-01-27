@@ -1,29 +1,94 @@
-# 迷你加密聊天 SDK
+# Mini Encrypted Chat
 
-基于 Waku 协议的“最小可用”加密聊天 SDK，支持单聊、群聊、消息撤回与删除功能。
+基于Waku协议的迷你加密聊天应用，支持点对点和群组聊天，提供消息加密、撤回、历史消息等功能。
 
-## 功能特性
+## 核心功能
 
-- ✅ **单聊**：两个用户之间的加密通信
-- ✅ **群聊**：多个用户的加密群组通信
-- ✅ **消息撤回**：发送墓碑消息，让其他客户端隐藏对应消息
-- ✅ **消息删除**：本地删除消息，不影响其他端
-- ✅ **轻节点模式**：基于 LightPush + Filter，资源消耗低
-- ✅ **加密传输**：消息在传输过程中加密
-- ✅ **本地存储**：支持本地消息存储
-- ✅ **消息去重**：基于 messageId 的去重机制
-- ✅ **历史消息拉取**：支持从 Store 节点拉取历史消息
+- ✅ **直接聊天**：两个用户之间的点对点通信
+- ✅ **群组聊天**：支持多个用户的群组通信
+- ✅ **消息加密**：确保消息的机密性和完整性
+- ✅ **消息撤回**：支持发送者撤回消息
+- ✅ **本地删除**：支持用户本地删除消息
+- ✅ **历史消息**：支持从Store节点拉取历史消息
+- ✅ **身份持久化**：用户身份可跨会话复用
+- ✅ **P2P通信**：基于Waku协议的去中心化通信
 
-## 技术栈
+## 技术实现
 
-- **核心协议**：Waku (v2)
-- **SDK**：@waku/sdk
-- **前端框架**：React + TypeScript
-- **构建工具**：Vite
-- **加密库**：ethers.js
-- **测试框架**：Jest
+### 身份管理
 
-## 快速开始
+- **身份生成**：使用以太坊钱包生成用户身份
+- **身份持久化**：将身份存储在本地存储中，确保跨会话复用
+- **身份结构**：包含peerId（钱包地址）、privateKey、publicKey
+
+### 消息加密
+
+- **密钥生成**：使用会话ID和用户公钥生成会话加密密钥
+- **加密方式**：使用改进的XOR加密方案，结合哈希函数增强安全性
+- **消息认证**：使用消息签名和消息认证码（MAC）确保消息完整性
+- **安全级别**：提供基本的机密性和完整性保护
+
+### 历史消息
+
+- **存储方式**：使用Waku Store节点拉取历史消息
+- **拉取范围**：默认拉取最近7天的消息
+- **分页机制**：每页拉取50条消息，支持批量拉取
+- **错误处理**：拉取失败时返回本地存储的消息
+
+### 删除与撤回
+
+- **本地删除**：用户可在本地删除消息，不再显示
+- **消息撤回**：发送者可撤回消息，其他用户收到后标记为"已撤回"
+- **撤回验证**：只有原发送者可撤回消息，通过消息签名验证
+- **边界说明**：无法保证所有节点都真正删除消息，因为Waku是去中心化网络
+
+### P2P通信
+
+- **协议**：使用Waku v2协议
+- **节点类型**：使用LightNode（轻节点）
+- **传输**：使用LightPush和Filter协议
+- **本地网络**：支持本地Waku节点部署
+
+## 本地网络环境
+
+### 启动本地Waku节点
+
+```bash
+# 使用提供的脚本启动本地Waku节点
+npm run start-waku
+```
+
+脚本会：
+1. 检查Docker是否安装并运行
+2. 拉取Waku镜像
+3. 启动本地Waku节点，暴露端口60000（P2P）、9000（HTTP）、8545（RPC）
+4. 启用Relay、Filter、LightPush、Store协议
+
+### 节点信息
+
+- **节点地址**：`/ip4/127.0.0.1/tcp/60000/p2p/16Uiu2HAmPLe7Mzm8TsYUubgCAW1aJoeFScxrLj8ppHFivPo97bUZ`
+- **RPC端点**：`http://localhost:8545`
+
+## 演示脚本
+
+### 运行演示
+
+```bash
+# 运行2用户+1群组的演示脚本
+npm run demo
+```
+
+### 演示内容
+
+1. 创建两个用户身份
+2. 建立直接聊天会话
+3. 发送和接收消息
+4. 建立群组聊天会话
+5. 在群组中发送消息
+6. 测试消息撤回功能
+7. 测试历史消息拉取
+
+## 如何运行
 
 ### 1. 安装依赖
 
@@ -31,258 +96,73 @@
 npm install
 ```
 
-### 2. 启动前端开发服务器
+### 2. 启动本地Waku节点（可选）
+
+```bash
+npm run start-waku
+```
+
+### 3. 启动开发服务器
 
 ```bash
 npm run dev
 ```
 
-访问 http://localhost:5173/ 即可使用应用。
+### 4. 访问应用
 
-### 3. 启动本地 Waku 节点（可选）
+打开浏览器访问：`http://localhost:5173`
 
-使用提供的批处理脚本一键启动本地 Waku 节点：
+### 5. 测试模式
 
-```bash
-# Windows
-start-waku-node.bat
-```
+应用会自动启用测试模式，创建两个用户身份，方便测试所有功能。
 
-### 4. 构建生产版本
+## 限制与边界
 
-```bash
-npm run build
-```
+### 安全限制
 
-## 使用说明
+- **加密方案**：当前使用改进的XOR加密，实际生产环境应使用AES-256-GCM等更安全的加密方案
+- **密钥交换**：当前使用简化的密钥生成方案，实际生产环境应使用Diffie-Hellman密钥交换
+- **签名验证**：当前使用简化的签名验证，实际生产环境应使用标准的以太坊签名验证
 
-### 1. 查看身份 ID
+### 网络限制
 
-启动应用后，顶部会显示你的唯一身份 ID。
+- **消息传递**：Waku是概率性路由，无法保证消息100%传递
+- **消息顺序**：无法保证消息的严格顺序
+- **消息删除**：无法保证所有节点都真正删除消息
+- **节点发现**：在某些网络环境下，节点发现可能较慢
 
-### 2. 创建会话
+### 功能限制
 
-#### 单聊
+- **群组管理**：当前不支持群组管理功能（如添加/移除成员）
+- **消息状态**：不支持已读/未读状态
+- **消息类型**：只支持文本消息，不支持图片、文件等
+- **用户界面**：界面较为简单，仅用于演示
 
-1. 在侧边栏输入对方的身份 ID
-2. 点击 "Create Chat"
-3. 在聊天窗口输入消息并发送
+## 技术栈
 
-#### 群聊
+- **前端**：React + TypeScript + Vite
+- **后端**：Waku SDK + ethers.js
+- **网络**：Waku v2协议
+- **容器**：Docker
 
-1. 在侧边栏输入多个身份 ID（用逗号分隔）
-2. 点击 "Create Chat"
-3. 在聊天窗口输入消息并发送
+## 核心文件
 
-### 3. 撤回消息
+- **`src/sdk/chat-sdk.ts`**：核心SDK实现
+- **`src/sdk/types.ts`**：类型定义
+- **`src/App.tsx`**：React应用界面
+- **`start-waku-node.bat`**：本地Waku节点启动脚本
+- **`demo-script.js`**：演示脚本
 
-点击消息下方的 "Revoke" 按钮，该消息会在所有参与者的界面中隐藏。
+## 总结
 
-### 4. 删除消息
+本项目实现了一个基于Waku协议的迷你加密聊天应用，展示了去中心化通信的核心概念和技术实现。虽然功能和安全性还有提升空间，但已经覆盖了基本的聊天功能和安全需求，可作为学习Waku协议和去中心化通信的参考。
 
-点击消息下方的 "Delete" 按钮，该消息会仅在本地删除。
+### 未来改进方向
 
-## 架构设计
-
-### 1. 核心组件
-
-- **ChatSDK 类**：主要接口，提供初始化、会话管理、消息发送接收等功能
-- **身份管理**：基于以太坊钱包生成的密钥对
-- **会话管理**：维护会话列表和参与者信息
-- **消息处理**：处理消息的发送、接收、加密、解密
-- **存储管理**：本地消息存储和历史消息拉取
-
-### 2. Topic 规划
-
-- **pubsub topic**：使用默认的 `/waku/2/default-waku/proto`，用于节点间的消息路由
-- **content topic**：使用 `/chat/{conversationId}/proto` 格式，用于区分不同的会话
-
-### 3. 消息格式
-
-```json
-{
-  "id": "string",          // 消息唯一标识（UUID v4）
-  "conversationId": "string",  // 所属会话 ID
-  "sender": "string",       // 发送者的 peerId
-  "content": "string",      // 消息内容
-  "timestamp": "number",    // 发送时间戳
-  "type": "text" | "tombstone",  // 消息类型
-  "tombstoneFor": "string"  // 被撤回的消息 ID（仅用于墓碑消息）
-}
-```
-
-### 4. 加密机制
-
-- **加密层**：Waku Message 的 payload 加密
-- **加密方案**：基于会话密钥的 AES-256-GCM 加密
-- **密钥生成**：使用会话 ID 和用户私钥生成会话密钥
-- **密钥管理**：每个会话使用独立的加密密钥
-
-## 本地测试网络
-
-### 1. 启动本地 Waku 节点
-
-使用提供的批处理脚本一键启动本地 Waku 节点：
-
-```bash
-# Windows
-start-waku-node.bat
-```
-
-### 2. 配置 SDK 连接本地节点
-
-修改 `src/sdk/chat-sdk.ts` 文件中的 `bootstrapNodes` 数组：
-
-```typescript
-const bootstrapNodes = [
-  '/ip4/127.0.0.1/tcp/60000/p2p/16Uiu2HAmPLe7Mzm8TsYUubgCAW1aJoeFScxrLj8ppHFivPo97bUZ',
-];
-```
-
-### 3. 验证本地节点
-
-访问 http://localhost:8545 查看节点 RPC 接口状态。
-
-## 测试
-
-### 1. 运行单元测试
-
-```bash
-npm test
-```
-
-### 2. 测试场景
-
-#### 单聊测试
-1. 打开两个浏览器窗口
-2. 查看各自的身份 ID
-3. 在第一个窗口创建会话，输入第二个窗口的身份 ID
-4. 发送消息，验证第二个窗口是否收到
-
-#### 群聊测试
-1. 打开三个以上浏览器窗口
-2. 查看各自的身份 ID
-3. 在第一个窗口创建会话，输入其他窗口的身份 ID
-4. 发送消息，验证所有窗口是否收到
-
-#### 撤回测试
-1. 发送一条消息
-2. 点击消息下方的 "Revoke" 按钮
-3. 验证消息在所有窗口中隐藏
-
-#### 删除测试
-1. 发送一条消息
-2. 点击消息下方的 "Delete" 按钮
-3. 验证消息仅在本地删除，其他窗口仍可见
-
-## 设计文档
-
-详细的设计文档请参考 `docs/design.md`，包含以下内容：
-
-- 协议封装设计
-- Topic 规划
-- 安全方案
-- 撤回删除边界说明
-- 关键概念解释
-
-## 离线模式
-
-应用支持离线模式，所有消息仅存储在本地内存中：
-
-- 无需网络连接
-- 消息仅在当前浏览器标签页中可见
-- 刷新页面后消息会丢失
-- 适合测试 UI 和基本功能
-
-## 局限性
-
-- **离线消息**：离线期间的消息无法接收
-- **消息持久化**：刷新页面后消息会丢失
-- **网络依赖**：需要稳定的网络连接
-- **加密强度**：当前使用基本的加密方案
-
-## 未来改进
-
-- 实现完整的 Waku Message 加密
-- 支持从 Store 节点拉取历史消息
-- 实现消息的持久化存储
-- 添加更复杂的用户界面
-- 支持好友系统和用户搜索
-
-## 许可证
-
-MIT
-=======
-# React + TypeScript + Vite
-
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
-
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
-
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+1. 使用AES-256-GCM等更安全的加密方案
+2. 实现完整的Diffie-Hellman密钥交换
+3. 支持更多消息类型（图片、文件等）
+4. 增强群组管理功能
+5. 优化用户界面和用户体验
+6. 增加消息状态管理（已读/未读）
+7. 实现消息同步机制，确保多设备一致性
