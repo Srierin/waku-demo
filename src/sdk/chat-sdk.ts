@@ -45,54 +45,18 @@ class ChatSDK {
       });
       await this.node.start();
 
-      // 连接到公共Waku节点
-      const bootstrapNodes = [
-        '/ip4/127.0.0.1/tcp/60000/p2p/16Uiu2HAmPLe7Mzm8TsYUubgCAW1aJoeFScxrLj8ppHFivPo97bUZ',
-        // 保留公共节点作为备用
-        '/dns4/node-01.do-ams3.wakuv2.test.statusim.net/tcp/443/wss/p2p/16Uiu2HAmPLe7Mzm8TsYUubgCAW1aJoeFScxrLj8ppHFivPo97bUZ',
-        '/dns4/node-02.do-ams3.wakuv2.test.statusim.net/tcp/443/wss/p2p/16Uiu2HAmPLe7Mzm8TsYUubgCAW1aJoeFScxrLj8ppHFivPo97bUZ',
-      ];
+      // 连接到本地Waku节点（优先）
+      const localNode = '/ip4/127.0.0.1/tcp/60000/p2p/16Uiu2HAky7eDmL2ChJ3s8KiwpwCbDvJDifT9kE7Cbxgcb2Kvkuxs';
 
-      let connected = false;
-      let connectionAttempts = 0;
-      const maxAttempts = 3; // 增加尝试次数，提高连接成功率
+      console.log('Attempting to connect to local Waku node...');
 
-      console.log('Attempting to connect to Waku nodes...');
+      // 非阻塞方式尝试连接本地节点，避免阻塞初始化过程
+      this.tryConnectToLocalNode(localNode);
 
-      for (const node of bootstrapNodes) {
-        if (connectionAttempts >= maxAttempts) break;
-
-        try {
-          await this.node.dial(node);
-          console.log(`Connected to bootstrap node: ${node}`);
-          connected = true;
-          break;
-        } catch (error) {
-          // 静默处理连接错误，只在第一次失败时记录
-          if (connectionAttempts === 0) {
-            console.log('网络连接问题被检测到，将在离线模式下运行所有功能。');
-          }
-          connectionAttempts++;
-        }
-      }
-
-      if (!connected) {
-        console.log('在离线模式下运行 - 所有功能均可用于测试');
-      } else {
-        try {
-          // 等待远程对等节点
-          await waitForRemotePeer(this.node, [
-            Protocols.LightPush,
-            Protocols.Filter,
-            this.options.storeMessages ? Protocols.Store : undefined,
-          ].filter(Boolean) as Protocols[]);
-          console.log('已连接到Waku网络');
-        } catch (error) {
-          console.log('在离线模式下运行 - 所有功能均可用于测试');
-        }
-      }
+      // 直接返回身份，确保SDK能正常初始化，不等待网络连接
+      console.log('SDK initialized successfully');
     } catch (error) {
-      console.log('在离线模式下运行 - 所有功能均可用于测试');
+      console.warn('Failed to initialize Waku node, running in offline mode:', error);
       this.node = null; // 确保在严重错误时设置为null
     }
 
@@ -140,6 +104,40 @@ class ChatSDK {
     };
   }
 
+  private async tryConnectToLocalNode(nodeAddress: string): Promise<void> {
+    if (!this.node) return;
+
+    try {
+      // 尝试连接到本地节点
+      await this.node.dial(nodeAddress);
+      console.log(`Connected to local Waku node: ${nodeAddress}`);
+
+      // 尝试等待远程对等节点，使用较短的超时时间
+      try {
+        // 设置10秒超时
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Connection timeout')), 10000)
+        );
+
+        await Promise.race([
+          waitForRemotePeer(this.node, [
+            Protocols.LightPush,
+            Protocols.Filter,
+            this.options.storeMessages ? Protocols.Store : undefined,
+          ].filter(Boolean) as Protocols[]),
+          timeoutPromise
+        ]);
+
+        console.log('Successfully connected to Waku network');
+      } catch (error) {
+        console.log('Local node connected but unable to wait for remote peers, continuing with basic functionality');
+      }
+    } catch (error) {
+      // 静默处理连接错误，不影响SDK初始化
+      console.log('Local Waku node connection failed, continuing with offline functionality.');
+    }
+  }
+
   async createConversation(participants: string[], type: 'direct' | 'group', name?: string): Promise<Conversation> {
     if (!this.identity) {
       throw new Error('SDK not initialized');
@@ -162,11 +160,13 @@ class ChatSDK {
       name,
     };
 
+    // 先将会话对象添加到conversations中，以便generateEncryptionKey方法能够找到它
+    this.conversations.set(conversationId, conversation);
+
     // 生成会话加密密钥
     const encryptionKey = this.generateEncryptionKey(conversationId);
     this.encryptionKeys.set(conversationId, encryptionKey);
 
-    this.conversations.set(conversationId, conversation);
     await this.subscribeToConversation(conversationId);
 
     return conversation;
@@ -176,11 +176,23 @@ class ChatSDK {
     if (!this.identity) {
       throw new Error('SDK not initialized');
     }
-    // 使用会话ID和用户私钥生成加密密钥，确保同一会话的所有用户使用相同密钥
-    // 这种方式确保了密钥的一致性和可复现性
-    const hash = keccak256(
-      toUtf8Bytes(`${conversationId}_${this.identity.publicKey}`)
-    );
+
+    // 获取当前会话
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) {
+      throw new Error('Conversation not found');
+    }
+
+    // 使用会话ID和所有参与者的公钥生成加密密钥
+    // 这样可以确保同一会话的所有用户生成相同的密钥
+    // 首先对参与者ID进行排序，确保一致性
+    const sortedParticipants = [...conversation.participants].sort();
+
+    // 生成密钥材料
+    const keyMaterial = `${conversationId}_${sortedParticipants.join('_')}`;
+
+    // 生成哈希值作为密钥
+    const hash = keccak256(toUtf8Bytes(keyMaterial));
     return hash.slice(0, 32); // 使用前32字节作为密钥
   }
 
@@ -336,44 +348,53 @@ class ChatSDK {
     // 添加消息认证码
     message.mac = this.generateMAC(message, encryptionKey);
 
-    // 加密消息
-    const plaintext = JSON.stringify(message);
-    const encryptedPayload = this.encryptMessage(plaintext, encryptionKey);
-
     // 本地存储消息
     this.storeMessage(message);
     this.notifyMessageHandlers(message);
 
+    // 通过localStorage发送消息给其他标签页和浏览器
+    try {
+      // 生成一个唯一的key，确保每次存储都会触发storage事件
+      const uniqueKey = `waku-chat-message-${Date.now()}`;
+      localStorage.setItem(uniqueKey, JSON.stringify({
+        type: 'new-message',
+        message: message,
+        timestamp: Date.now()
+      }));
+      // 立即删除该key，只用于触发事件
+      setTimeout(() => localStorage.removeItem(uniqueKey), 0);
+      console.log(`Sent message to other browsers via localStorage: ${message.id}`);
+    } catch (error) {
+      console.warn('Failed to send message to other tabs via localStorage:', error);
+    }
+
     // 如果有网络连接，发送到Waku网络
     if (this.node) {
       try {
-        await this.retryWithTimeout(async () => {
-          const contentTopic = this.getContentTopic(conversationId);
-          // 使用默认的routingInfo配置
-          const encoder = createEncoder({
-            contentTopic,
-            routingInfo: {
-              clusterId: 0,
-              shardId: 0,
-              pubsubTopic: '/waku/2/default-waku/proto'
-            }
-          });
+        const contentTopic = this.getContentTopic(conversationId);
+        // 明确指定pubsubTopic，避免使用分片主题
+        const encoder = createEncoder({
+          contentTopic,
+          pubsubTopic: '/waku/2/default-waku/proto'
+        });
 
-          const wakuMessage = {
-            payload: encryptedPayload,
-            contentTopic,
-            ephemeral: false,
-          };
+        const plaintext = JSON.stringify(message);
+        const encryptedPayload = this.encryptMessage(plaintext, encryptionKey);
 
-          const result = await this.node!.lightPush.send(encoder, wakuMessage);
-          if (result) {
-            console.log(`Message sent to Waku network: ${message.id}`);
-          } else {
-            throw new Error('LightPush send failed');
-          }
-        }, 5, 10000); // 增加重试次数和超时时间
+        const wakuMessage = {
+          payload: encryptedPayload,
+          contentTopic,
+          ephemeral: false,
+        };
+
+        const result = await this.node.lightPush.send(encoder, wakuMessage);
+        if (result) {
+          console.log(`Message sent to Waku network: ${message.id}`);
+        } else {
+          console.warn('LightPush send failed, message only stored locally');
+        }
       } catch (error) {
-        console.error('Failed to send message to Waku network:', error);
+        console.warn('Failed to send message to Waku network, message only stored locally:', error);
         // 继续执行，返回messageId，因为本地存储已经完成
       }
     }
@@ -421,19 +442,26 @@ class ChatSDK {
     this.notifyMessageHandlers(tombstoneMessage);
     console.log(`Notified message handlers`);
 
+    // 通过localStorage发送墓碑消息给其他标签页
+    try {
+      localStorage.setItem('waku-chat-message', JSON.stringify({
+        type: 'new-message',
+        message: tombstoneMessage,
+        timestamp: Date.now()
+      }));
+    } catch (error) {
+      console.warn('Failed to send tombstone message to other tabs via localStorage:', error);
+    }
+
     // 如果有网络连接，发送墓碑消息到Waku网络
     if (this.node) {
       try {
         await this.retryWithTimeout(async () => {
           const contentTopic = this.getContentTopic(conversationId);
-          // 使用默认的routingInfo配置
+          // 明确指定pubsubTopic，避免使用分片主题
           const encoder = createEncoder({
             contentTopic,
-            routingInfo: {
-              clusterId: 0,
-              shardId: 0,
-              pubsubTopic: '/waku/2/default-waku/proto'
-            }
+            pubsubTopic: '/waku/2/default-waku/proto'
           });
           console.log(`Created encoder for content topic: ${contentTopic}`);
 
@@ -490,110 +518,108 @@ class ChatSDK {
   private subscribedConversations: Set<string> = new Set(); // 已订阅的会话ID
 
   private async subscribeToConversation(conversationId: string): Promise<void> {
-    if (!this.node) {
-      console.log(`Subscribed to conversation ${conversationId} in offline mode`);
-      return;
-    }
-
     // 检查是否已经订阅过该会话，避免重复订阅
     if (this.subscribedConversations.has(conversationId)) {
       console.log(`Already subscribed to conversation ${conversationId}`);
       return;
     }
 
-    try {
-      const contentTopic = this.getContentTopic(conversationId);
-      // 使用默认的routingInfo配置
-      const decoder = createDecoder(
-        contentTopic,
-        {
-          clusterId: 0,
-          shardId: 0,
-          pubsubTopic: '/waku/2/default-waku/proto'
-        }
-      );
+    // 标记会话为已订阅
+    this.subscribedConversations.add(conversationId);
 
-      await this.node.filter.subscribe([decoder], async (wakuMessage) => {
-        if (!wakuMessage.payload) return;
+    // 如果有网络连接，订阅Waku网络消息
+    if (this.node) {
+      try {
+        const contentTopic = this.getContentTopic(conversationId);
+        // 创建解码器，明确指定pubsubTopic，避免使用分片主题
+        const decoder = createDecoder(contentTopic);
 
-        try {
-          // 遍历所有可能的会话，尝试解密消息
-          for (const [convId, encryptionKey] of this.encryptionKeys) {
-            try {
-              // 尝试解密消息
-              const decryptedPayload = this.decryptMessage(wakuMessage.payload, encryptionKey);
-              const message = JSON.parse(decryptedPayload) as Message;
+        // 订阅消息，使用默认的pubsub主题
+        await this.node.filter.subscribe([decoder], (wakuMessage) => {
+          if (!wakuMessage.payload) return;
 
-              // 验证消息签名，确保消息完整性
-              if (!this.verifySignature(message)) {
-                continue; // 尝试下一个会话
-              }
-
-              // 验证消息认证码，确保消息完整性和防篡改
-              if (!this.verifyMAC(message, encryptionKey)) {
-                continue; // 尝试下一个会话
-              }
-
-              // 确保会话ID匹配
-              if (message.conversationId !== convId) {
-                continue; // 尝试下一个会话
-              }
-
-              // 如果会话不存在，自动创建会话
-              if (!this.conversations.has(convId)) {
-                // 从消息中获取参与者信息（消息发送者 + 当前用户）
-                const participants = [...new Set([message.sender, this.identity!.peerId])];
-                const conversation: Conversation = {
-                  id: convId,
-                  type: 'direct', // 默认作为直接聊天处理
-                  participants,
-                  name: `Chat with ${message.sender.slice(0, 6)}...`
-                };
-                this.conversations.set(convId, conversation);
-                console.log(`Auto-created conversation ${convId} for message from ${message.sender}`);
-              }
-
-              // 存储并处理消息
-              this.storeMessage(message);
-              this.notifyMessageHandlers(message);
-              console.log(`Processed message ${message.id} from ${message.sender} to conversation ${convId}`);
-              break; // 成功处理消息，退出循环
-            } catch (error) {
-              // 解密失败，尝试下一个会话
-              console.log(`Failed to decrypt message for conversation ${convId}:`, error);
-              continue;
+          try {
+            // 获取当前会话的加密密钥
+            const encryptionKey = this.encryptionKeys.get(conversationId);
+            if (!encryptionKey) {
+              console.error(`Encryption key not found for conversation ${conversationId}`);
+              return;
             }
+
+            // 尝试解密消息
+            const decryptedPayload = this.decryptMessage(wakuMessage.payload, encryptionKey);
+            const message = JSON.parse(decryptedPayload) as Message;
+
+            // 验证消息签名，确保消息完整性
+            if (!this.verifySignature(message)) {
+              console.warn('Invalid message signature, discarding message:', message.id);
+              return;
+            }
+
+            // 验证消息认证码，确保消息完整性和防篡改
+            if (!this.verifyMAC(message, encryptionKey)) {
+              console.warn('Invalid message MAC, discarding message:', message.id);
+              return;
+            }
+
+            // 确保会话ID匹配
+            if (message.conversationId !== conversationId) {
+              console.warn('Conversation ID mismatch, discarding message:', message.id);
+              return;
+            }
+
+            // 检查会话是否存在，如果不存在则自动创建
+            if (!this.conversations.has(message.conversationId)) {
+              // 从消息中获取参与者信息（消息发送者 + 当前用户），并进行排序
+              const participants = [...new Set([message.sender, this.identity!.peerId])].sort();
+              const conversation: Conversation = {
+                id: message.conversationId,
+                type: 'direct', // 默认作为直接聊天处理
+                participants,
+                name: `Chat with ${message.sender.slice(0, 6)}...`
+              };
+              this.conversations.set(message.conversationId, conversation);
+              console.log(`Auto-created conversation ${message.conversationId} for message from ${message.sender}`);
+
+              // 为新创建的会话生成加密密钥
+              const encryptionKey = this.generateEncryptionKey(message.conversationId);
+              this.encryptionKeys.set(message.conversationId, encryptionKey);
+              console.log(`Generated encryption key for auto-created conversation`);
+            }
+
+            // 存储并处理消息
+            this.storeMessage(message);
+            this.notifyMessageHandlers(message);
+            console.log(`Received message from Waku network: ${message.id}`);
+          } catch (error) {
+            console.error('处理网络消息失败:', error);
           }
-        } catch (error) {
-          console.error('Failed to process message:', error);
-        }
-      }, {
-        pubsubTopic: '/waku/2/default-waku/proto'
-      });
+        });
 
-      // 标记会话为已订阅
-      this.subscribedConversations.add(conversationId);
-      console.log(`Subscribed to Waku content topic: ${contentTopic}`);
-
-      // 存储订阅对象，以便后续可以取消订阅
-      // 注意：这里我们可以添加一个订阅管理机制
-
-      // 自动拉取历史消息
-      await this.autoFetchHistory(conversationId);
-    } catch (error) {
-      console.error(`Failed to subscribe to conversation ${conversationId}:`, error);
-      // 尝试重新订阅
-      setTimeout(() => {
-        this.subscribeToConversation(conversationId).catch(console.error);
-      }, 5000);
+        console.log(`Subscribed to conversation ${conversationId} on Waku network`);
+      } catch (error) {
+        console.error(`Failed to subscribe to conversation ${conversationId} on Waku network:`, error);
+        // 继续执行，即使网络订阅失败，本地订阅仍然有效
+      }
     }
+
+    // 自动拉取历史消息（如果需要）
+    if (this.node && this.options.storeMessages) {
+      try {
+        await this.autoFetchHistory(conversationId);
+      } catch (error) {
+        console.error(`Failed to fetch history for conversation ${conversationId}:`, error);
+      }
+    }
+
+    console.log(`Subscribed to conversation ${conversationId}`);
   }
 
   private getContentTopic(conversationId: string): string {
-    // 使用更简单的content topic格式，确保符合Waku的要求
+    // 使用基于会话ID的content topic，确保每个会话使用不同的topic
     // 移除可能导致格式问题的特殊字符
     const safeConversationId = conversationId.replace(/[^a-zA-Z0-9_-]/g, '_');
-    return `/waku/chat/1/proto`;
+    return `/waku/chat/${safeConversationId}/proto`;
   }
 
   private storeMessage(message: Message): void {
@@ -607,7 +633,18 @@ class ChatSDK {
     if (!this.store.has(message.conversationId)) {
       this.store.set(message.conversationId, []);
     }
-    this.store.get(message.conversationId)?.push(message);
+
+    const messages = this.store.get(message.conversationId);
+    if (messages) {
+      messages.push(message);
+
+      // 清理旧消息，只保留最近的100条消息
+      if (messages.length > 100) {
+        const trimmedMessages = messages.slice(-100);
+        this.store.set(message.conversationId, trimmedMessages);
+        console.log(`Trimmed messages for conversation ${message.conversationId}, kept ${trimmedMessages.length} messages`);
+      }
+    }
   }
 
   private notifyMessageHandlers(message: Message): void {
@@ -645,14 +682,8 @@ class ChatSDK {
       try {
         console.log('正在从Store节点拉取历史消息');
         const contentTopic = this.getContentTopic(conversationId);
-        const decoder = createDecoder(
-          contentTopic,
-          {
-            clusterId: 0,
-            shardId: 0,
-            pubsubTopic: '/waku/2/default-waku/proto'
-          }
-        );
+        // 只指定contentTopic，不指定routingInfo，避免使用分片主题
+        const decoder = createDecoder(contentTopic);
 
         try {
           await this.retryWithTimeout(async () => {
@@ -663,59 +694,56 @@ class ChatSDK {
                 if (!wakuMessage.payload) return;
 
                 try {
-                  // 遍历所有可能的会话，尝试解密消息
-                  for (const [convId, encryptionKey] of this.encryptionKeys) {
-                    try {
-                      // 尝试解密消息
-                      const decryptedPayload = this.decryptMessage(wakuMessage.payload, encryptionKey);
-                      const message = JSON.parse(decryptedPayload) as Message;
-
-                      // 验证消息签名，确保消息完整性
-                      if (!this.verifySignature(message)) {
-                        continue; // 尝试下一个会话
-                      }
-
-                      // 验证消息认证码，确保消息完整性和防篡改
-                      if (!this.verifyMAC(message, encryptionKey)) {
-                        continue; // 尝试下一个会话
-                      }
-
-                      // 确保会话ID匹配
-                      if (message.conversationId !== convId) {
-                        continue; // 尝试下一个会话
-                      }
-
-                      // 如果会话不存在，自动创建会话
-                      if (!this.conversations.has(convId)) {
-                        // 从消息中获取参与者信息（消息发送者 + 当前用户）
-                        const participants = [...new Set([message.sender, this.identity!.peerId])];
-                        const conversation: Conversation = {
-                          id: convId,
-                          type: 'direct', // 默认作为直接聊天处理
-                          participants,
-                          name: `Chat with ${message.sender.slice(0, 6)}...`
-                        };
-                        this.conversations.set(convId, conversation);
-                        console.log(`Auto-created conversation ${convId} for historical message from ${message.sender}`);
-                      }
-
-                      // 存储并处理消息
-                      this.storeMessage(message);
-                      this.notifyMessageHandlers(message);
-                      console.log(`Processed historical message ${message.id} from ${message.sender} to conversation ${convId}`);
-                      break; // 成功处理消息，退出循环
-                    } catch (error) {
-                      // 解密失败，尝试下一个会话
-                      console.log(`Failed to decrypt historical message for conversation ${convId}:`, error);
-                      continue;
-                    }
+                  // 获取当前会话的加密密钥
+                  const encryptionKey = this.encryptionKeys.get(conversationId);
+                  if (!encryptionKey) {
+                    console.error(`Encryption key not found for conversation ${conversationId}`);
+                    return;
                   }
+
+                  // 尝试解密消息
+                  const decryptedPayload = this.decryptMessage(wakuMessage.payload, encryptionKey);
+                  const message = JSON.parse(decryptedPayload) as Message;
+
+                  // 验证消息签名，确保消息完整性
+                  if (!this.verifySignature(message)) {
+                    console.warn('Invalid message signature, discarding message:', message.id);
+                    return;
+                  }
+
+                  // 验证消息认证码，确保消息完整性和防篡改
+                  if (!this.verifyMAC(message, encryptionKey)) {
+                    console.warn('Invalid message MAC, discarding message:', message.id);
+                    return;
+                  }
+
+                  // 确保会话ID匹配
+                  if (message.conversationId !== conversationId) {
+                    console.warn('Conversation ID mismatch, discarding message:', message.id);
+                    return;
+                  }
+
+                  // 如果会话不存在，自动创建会话
+                  if (!this.conversations.has(conversationId)) {
+                    // 从消息中获取参与者信息（消息发送者 + 当前用户）
+                    const participants = [...new Set([message.sender, this.identity!.peerId])];
+                    const conversation: Conversation = {
+                      id: conversationId,
+                      type: 'direct', // 默认作为直接聊天处理
+                      participants,
+                      name: `Chat with ${message.sender.slice(0, 6)}...`
+                    };
+                    this.conversations.set(conversationId, conversation);
+                    console.log(`Auto-created conversation ${conversationId} for historical message from ${message.sender}`);
+                  }
+
+                  // 存储并处理消息
+                  this.storeMessage(message);
+                  this.notifyMessageHandlers(message);
+                  console.log(`Processed historical message ${message.id} from ${message.sender} to conversation ${conversationId}`);
                 } catch (error) {
                   console.error('处理历史消息失败:', error);
                 }
-              },
-              {
-                pubsubTopic: '/waku/2/default-waku/proto'
               }
             );
           }, 3, 10000); // 减少重试次数和超时时间
